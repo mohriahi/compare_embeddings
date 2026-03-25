@@ -9,12 +9,14 @@ Metrics computed:
 """
 
 import os
+import sys
 import math
 import argparse
 from dotenv import load_dotenv
 from mistralai.client import Mistral
+from mistralai.client.errors import SDKError
 
-load_dotenv()
+load_dotenv(override=True)
 
 # ---------------------------------------------------------------------------
 # Embedding helpers
@@ -24,7 +26,18 @@ MODEL = os.getenv("MISTRAL_EMBED_MODEL", "mistral-embed")
 
 
 def get_embedding(client: Mistral, text: str) -> list[float]:
-    response = client.embeddings.create(model=MODEL, inputs=[text])
+    try:
+        response = client.embeddings.create(model=MODEL, inputs=[text])
+    except SDKError as e:
+        if e.status_code == 401:
+            sys.exit(
+                "\nError: Invalid or missing API key (401 Unauthorized).\n"
+                "  → Check that MISTRAL_API_KEY is correctly set in your .env file.\n"
+                "  → Get a key at https://console.mistral.ai/\n"
+            )
+        if e.status_code == 429:
+            sys.exit("\nError: Rate limit exceeded (429). Wait a moment and try again.\n")
+        sys.exit(f"\nError: Mistral API returned status {e.status_code}.\n  {e}\n")
     return response.data[0].embedding
 
 
@@ -54,8 +67,10 @@ def euclidean_distance(a: list[float], b: list[float]) -> float:
 def compare(text1: str, text2: str, api_key: str | None = None) -> None:
     key = api_key or os.environ.get("MISTRAL_API_KEY")
     if not key:
-        raise EnvironmentError(
-            "Mistral API key not found. Set MISTRAL_API_KEY or pass --api-key."
+        sys.exit(
+            "\nError: MISTRAL_API_KEY is not set.\n"
+            "  → Add your key to the .env file: MISTRAL_API_KEY=<your_key>\n"
+            "  → Get a key at https://console.mistral.ai/\n"
         )
 
     client = Mistral(api_key=key)
